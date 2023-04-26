@@ -75,7 +75,7 @@ try:
                 client_connection.setblocking(0)
 
                 client_fd = client_connection.fileno()
-                epoll.register(client_fd, select.EPOLLIN | select.EPOLLET)
+                epoll.register(client_fd, select.EPOLLIN | select.EPOLLONESHOT)
                 connections[client_fd] = client_connection
                 print("New Client connection from {} on socket: {}".format(client_address,client_fd))
 
@@ -101,7 +101,7 @@ try:
                             raise
                 
                 
-                epoll.modify(connections[fileno], select.EPOLLOUT)
+                epoll.modify(connections[fileno], select.EPOLLOUT| select.EPOLLONESHOT)
 
             elif event & select.EPOLLOUT:
 
