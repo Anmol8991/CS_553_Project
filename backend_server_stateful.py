@@ -7,7 +7,9 @@ MAX_EVENTS = 100
 BUFFER = 1024
 EXIT = 1
 HOST = socket.gethostbyname(socket.gethostname())  # Get the IP address of the current machine
-PORT = 3031
+PORT = 8082
+num_of_reqs = 0
+num_of_cons = 0
 
 
 RESPONSE = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nHello, world!\n"
@@ -77,6 +79,9 @@ try:
                 client_fd = client_connection.fileno()
                 epoll.register(client_fd, select.EPOLLIN | select.EPOLLONESHOT)
                 connections[client_fd] = client_connection
+                
+                num_of_cons = num_of_cons + 1
+      
                 print("New Client connection from {} on socket: {}".format(client_address,client_fd))
 
             elif event & select.EPOLLIN:
@@ -108,6 +113,11 @@ try:
                 print("Sending Response....")
                 try:  
                     connections[fileno].send(RESPONSE)
+                    
+                    num_of_reqs = num_of_reqs + 1
+                    
+                    print("The number of requests served at this server is {}".format(num_of_reqs))
+                    print("The number of connections served at this server is {}".format(num_of_cons))
                 except socket.error:
                         raise
                 

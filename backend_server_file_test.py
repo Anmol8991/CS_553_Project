@@ -7,7 +7,7 @@ MAX_EVENTS = 100
 BUFFER = 1024
 EXIT = 1
 HOST = socket.gethostbyname(socket.gethostname())  # Get the IP address of the current machine
-PORT = 8080
+PORT = 8053
 num_of_reqs = 0
 num_of_cons = 0
 
@@ -51,6 +51,7 @@ except OSError as e:
 
 try:
     connections = {}
+    file_name = b''
     while True:
 
         try:
@@ -81,7 +82,7 @@ try:
                 connections[client_fd] = client_connection
                 
                 num_of_cons = num_of_cons + 1
-                
+      
                 print("New Client connection from {} on socket: {}".format(client_address,client_fd))
 
             elif event & select.EPOLLIN:
@@ -106,13 +107,25 @@ try:
                             raise
                 
                 
+                # Storing the file name
+                file_name = data
+                
                 epoll.modify(connections[fileno], select.EPOLLOUT | select.EPOLLONESHOT)
 
             elif event & select.EPOLLOUT:
 
                 print("Sending Response....")
-                try:  
-                    connections[fileno].send(RESPONSE)
+                try:
+                
+                    # In the file test we need to send the contents of the file through the network
+                    file_contents = ""
+                    
+                    file_name_decoded = file_name.decode()
+                    
+                    with open(file_name_decoded, 'r') as file:
+                        file_contents = bytes(file.read().rstrip(), 'utf-8')
+                         
+                    connections[fileno].send(file_contents)
                     
                     num_of_reqs = num_of_reqs + 1
                     
@@ -121,11 +134,12 @@ try:
                 except socket.error:
                         raise
                 
-                print("Closing Connection with client on socket {}".format(fileno))
-                epoll.unregister(fileno)
-                connections[fileno].close()
-                del connections[fileno]
-                print("\n")
+                epoll.modify(connections[fileno], select.EPOLLIN | select.EPOLLONESHOT)
+                # print("Closing Connection with client on socket {}".format(fileno))
+                # epoll.unregister(fileno)
+                # connections[fileno].close()
+                # del connections[fileno]
+                # print("\n")
 
             elif event & select.EPOLLHUP:
                 epoll.unregister(fileno)
