@@ -6,46 +6,77 @@ import random
 from itertools import cycle
 
 HOST = socket.gethostbyname(socket.gethostname())  # Get the IP address of the current machine
-PORT = 8021
-SERVER_PORT = 3024
+PORT = 8090
+SERVER_PORT = 8053
 MAX_EVENTS = 100
 BUFFER = 1024
 RESPONSE = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nHello, world!\r\n"
+SERVER_POOL = set(['128.6.4.101', '128.6.4.102'])
+SERVER_LIST = ['128.6.4.101', '128.6.4.102']
 
-
-
-# dumb netcat server, short tcp connection
-# $ ~  while true ; do nc -l 8888 < server1.html; done
-# $ ~  while true ; do nc -l 9999 < server2.html; done
-SERVER_POOL = set(['128.6.4.101', '128.6.4.101'])
-
+# Data structures for our policies
 ITER = cycle(SERVER_POOL)
+num_of_connections = {}
+
+# Adding the server pool to the dictionary of connections mapping
+for server in SERVER_LIST:
+    num_of_connections[server] = 0
 
 def round_robin(iter):
     # round_robin([A, B, C, D]) --> A B C D A B C D A B C D ...
     return next(iter)
-
-
+    
+# Definition of our Lowest Connection Policy
+def fewest_connection():
+    
+    minimum = sys.maxsize
+    server = ''
+    
+    # Iterating the connections dictionary to find the min
+    for key, value in num_of_connections.items():
+        
+        # Selecting the server with the lowest number of connections
+        if value < minimum:
+            minimum = value
+            server = key      
+        
+    # Incrementing the number of connections in the dictionary
+    num_of_connections[server] = num_of_connections[server] + 1
+    
+    print(num_of_connections)
+    
+    return server 
+    
+# Definition of our IP Hashing Policy
+def ip_hashing(client_address):
+    
+    length = len(SERVER_LIST)
+    
+    client_ip, client_port = client_address
+    
+    ip_parts = client_ip.split(".")
+    ip_to_hash = int(ip_parts[3])
+        
+    server = SERVER_LIST[ip_to_hash % length] 
+    
+    return server
 
 
 class LoadBalancer(object):
-    """ Socket implementation of a load balancer.
-    Flow Diagram:
-    +---------------+      +-----------------------------------------+      +---------------+
-    | client socket | <==> | client-side socket | server-side socket | <==> | server socket |
-    |   <client>    |      |          < load balancer >              |      |    <server>   |
-    +---------------+      +-----------------------------------------+      +---------------+
-    Attributes:
-        ip (str): virtual server's ip; client-side socket's ip
-        port (int): virtual server's port; client-side socket's port
-        algorithm (str): algorithm used to select a server
-        flow_table (dict): map_fdping of client socket obj <==> server-side socket obj
-        sockets (list): current connected and open socket obj
+    """ Load balancer.
+    
+    Flow Diagram:-
+    Client Socket <-> map(Client Socket, Server Socket) <-> Server Socket
+    
+    Notes:-
+    flow_table is a dictionary that stores the mapping from the client socket to the server side socket
+    sockets is a list that stores the currently connected and open server side sockets
     """
 
     flow_table = dict()
     ss_sockets = list()
     map_fd = {}
+    resonse_to_a_fd = {}
 
     def __init__(self, algorithm='random'):
         self.algorithm = algorithm
@@ -76,7 +107,7 @@ class LoadBalancer(object):
         try:
             # Create an epoll instance
             self.epoll = select.epoll()
-            self.epoll.register(self.server_socket.fileno(), select.EPOLLIN | select.EPOLLET)
+            self.epoll.register(self.server_socket.fileno(), select.EPOLLIN)
         except OSError as e:
             print("Error in epoll instance: {}".format(e))
             sys.exit(1)
@@ -89,7 +120,7 @@ class LoadBalancer(object):
             print("Can't establish connection with client: {}".format(e))
 
         # select a backend server => ip of backend server
-        server_ip = self.select_server(SERVER_POOL, self.algorithm)
+        server_ip = self.select_server(SERVER_POOL, client_address, self.algorithm)
         
         # init a server-side socket
         ss_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #instantiate socket on load balancer in order to connect to the backend server
@@ -114,37 +145,78 @@ class LoadBalancer(object):
         self.flow_table[ss_socket.fileno()] = client_socket.fileno()
 
         # Monitor Server-side socket to RECEIVE data
-        self.epoll.register(ss_socket.fileno(), select.EPOLLIN | select.EPOLLET)
+        self.epoll.register(ss_socket.fileno(), select.EPOLLIN | select.EPOLLONESHOT)
         # Monitor Client-side socket to RECEIVE data
-        self.epoll.register(client_socket.fileno(), select.EPOLLIN | select.EPOLLET)
+        self.epoll.register(client_socket.fileno(), select.EPOLLIN | select.EPOLLONESHOT)
 
         
         print("New CLIENT connection from {} on socket: {}".format(client_address,client_socket.fileno()))
         print("New connection with BACKEND SERVER {} on socket: {}".format((server_ip,SERVER_PORT),ss_socket.fileno()))
 
 
-    def select_server(self, server_list, algorithm):
+    def select_server(self, server_list, client_address, algorithm):
             if algorithm == 'random':
                 return random.choice(server_list)
             elif algorithm == 'round robin':
                 return round_robin(ITER)
+            elif algorithm == 'fewest_connections':
+                return fewest_connection()
+            elif algorithm == 'ip_hashing':
+                return ip_hashing(client_address)
             else:
                 raise Exception('unknown algorithm: {}'.format(algorithm) )
+        
+    def on_recv(self,fd):
+        print("Recieved incoming data on socket: {}".format(fd))
+        # Handle incoming data
+        data = b""
+
+        while True:
+            try:
+                chunk = self.map_fd[fd].recv(BUFFER)
+                # The first exit condition is when the recv function returns an empty byte string, 
+                # which indicates that the socket has been closed by the remote peer.(i.e the backend server)
+                #  In this case, the loop breaks and control is returned to the calling function.
+                if not chunk: 
+                    # to confirm this case occurs when we receive response from server..check fd if fd in 
+                    # in ss_sockets => true assumption otherwise wrong
+                    print(True if fd in self.ss_sockets else False)
+                    break
+
+                data += chunk
+                
+            except socket.error as e:
+                if e.errno == errno.EWOULDBLOCK or errno.EAGAIN:
+                    break
+                else:
+                    raise
+        
+        # on receive data code 
+        print("Read Data: {}".format(data))
+        self.resonse_to_a_fd[self.flow_table[fd]] = data
+        res_socket = self.map_fd[self.flow_table[fd]]
+        self.epoll.modify(res_socket, select.EPOLLOUT| select.EPOLLONESHOT)
+        
 
 
-    def on_recv(self,fd, msg):
+        
+
+    def on_send(self,fd):
         
         # => incoming message = REQUEST from CLIENT => Action: forward it to the selected server 
         #  => incoming message = RESPONSE from BACKEND SERVER => Action: forward it to the CLIENT
-        res_socket = self.map_fd[self.flow_table[fd]]
+        response = self.resonse_to_a_fd[fd] 
+        
         try:
-            print("Forwarding packets from socket: {} to socket: {}".format(fd,res_socket.fileno()))
-            res_socket.send(msg)
+            print("Forwarding packets to socket: {}".format(fd))
+            self.map_fd[fd].send(response)
         except socket.error:
                 raise
         
         if fd in self.ss_sockets:
-            print("Closing Connection with client and backend server on socket {} and {}".format(self.flow_table[fd],fd))
+            self.epoll.modify(self.map_fd[fd], select.EPOLLIN| select.EPOLLONESHOT)
+        else:
+            print("Closing Connection with client and backend server on socket {} and {}".format(fd,self.flow_table[fd]))
             print("\n")
             self.epoll.unregister(fd)
             self.epoll.unregister(self.flow_table[fd])
@@ -154,7 +226,6 @@ class LoadBalancer(object):
 
             del self.flow_table[self.flow_table[fd]]
             del self.flow_table[fd]
-            return
            
 
     def start(self):
@@ -162,52 +233,35 @@ class LoadBalancer(object):
             while True:
                 try:
                     events = self.epoll.poll(MAX_EVENTS) #self.epoll.poll(30,MAX_EVENTS)
-                    if len(events)==0:
-                        print ("Error NO ready events") 
-                        sys.exit(1)
+                    # print("events fd: {}".format(events))
+                    # if len(events)==0:
+                    #     print ("Error NO ready events") 
+                    #     sys.exit(1)
                 except OSError as e:
                     print ("Error NO ready events: {}".format(e)) 
                     sys.exit(1)
 
                 for fileno, event in events:
+                    
                     # Handle new connections
                     if fileno == self.server_socket.fileno():
                         # onaccept(function) and choosing server and create connection to the selected server
                         self.new_connection()
                         
                     elif event & select.EPOLLIN:
-
-                        print("Recieved incoming data from fd: {}".format(fileno))
-                        # Handle incoming data
-                        data = b""
-
-                        while True:
-                            try:
-                                chunk = self.map_fd[fileno].recv(BUFFER)
-                                # The first exit condition is when the recv function returns an empty byte string, 
-                                # which indicates that the socket has been closed by the remote peer.(i.e the backend server)
-                                #  In this case, the loop breaks and control is returned to the calling function.
-                                if not chunk: 
-                                    # to confirm this case occurs when we receive response from server..check fd if fd in 
-                                    # in ss_sockets => true assumption otherwise wrong
-                                    print(True if fileno in self.ss_sockets else False)
-                                    break
-
-                                data += chunk
-                                
-                            except socket.error as e:
-                                if e.errno == errno.EWOULDBLOCK or errno.EAGAIN:
-                                    break
-                                else:
-                                    raise
+                        self.on_recv(fileno)
                         
-                        # on receive data code 
-                        print("Read Data: {}".format(data))
-                        self.on_recv(fileno,data)
-                        # map_fd[fileno].send(RESPONSE)
+                    
+                    elif event & select.EPOLLOUT:
+                        self.on_send(fileno)
 
+                    elif event & select.EPOLLHUP:
+                        self.epoll.unregister(fileno)
+                        self.map_fd[fileno].close()
+                        del self.map_fd[fileno]
         
         finally:
+            print("Close ALL")
             self.epoll.unregister(self.server_socket.fileno())
             self.epoll.close()
             self.server_socket.close()
@@ -217,7 +271,7 @@ class LoadBalancer(object):
 if __name__ == '__main__':
     
     try:
-        LoadBalancer('round robin').start()
+        LoadBalancer('fewest_connections').start()
     except KeyboardInterrupt:
         print ("Ctrl C - Stopping load_balancer")
         sys.exit(1)

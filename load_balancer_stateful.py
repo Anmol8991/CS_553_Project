@@ -6,41 +6,72 @@ import random
 from itertools import cycle
 
 HOST = socket.gethostbyname(socket.gethostname())  # Get the IP address of the current machine
-PORT = 8098
-SERVER_PORT = 3026
+PORT = 8091
+SERVER_PORT = 8053
 MAX_EVENTS = 100
 BUFFER = 1024
 RESPONSE = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nHello, world!\r\n"
 
-
-
-# dumb netcat server, short tcp connection
-# $ ~  while true ; do nc -l 8888 < server1.html; done
-# $ ~  while true ; do nc -l 9999 < server2.html; done
 SERVER_POOL = set(['128.6.4.101', '128.6.4.102'])
+SERVER_LIST = ['128.6.4.101', '128.6.4.102']
 
+# Data structures for our policies
 ITER = cycle(SERVER_POOL)
+num_of_connections = {}
+
+# Adding the server pool to the dictionary of connections mapping
+for server in SERVER_LIST:
+    num_of_connections[server] = 0
 
 def round_robin(iter):
     # round_robin([A, B, C, D]) --> A B C D A B C D A B C D ...
     return next(iter)
-
-
+    
+# Definition of our Lowest Connection Policy
+def fewest_connection():
+    
+    minimum = sys.maxsize
+    server = ''
+    
+    # Iterating the connections dictionary to find the min
+    for key, value in num_of_connections.items():
+        
+        # Selecting the server with the lowest number of connections
+        if value < minimum:
+            minimum = value
+            server = key      
+        
+    # Incrementing the number of connections in the dictionary
+    num_of_connections[server] = num_of_connections[server] + 1
+    
+    print(num_of_connections)
+    
+    return server 
+    
+# Definition of our IP Hashing Policy
+def ip_hashing(client_address):
+    
+    length = len(SERVER_LIST)
+    
+    client_ip, client_port = client_address
+    
+    ip_parts = client_ip.split(".")
+    ip_to_hash = int(ip_parts[3])
+        
+    server = SERVER_LIST[ip_to_hash % length] 
+    
+    return server
 
 
 class LoadBalancer(object):
-    """ Socket implementation of a load balancer.
-    Flow Diagram:
-    +---------------+      +-----------------------------------------+      +---------------+
-    | client socket | <==> | client-side socket | server-side socket | <==> | server socket |
-    |   <client>    |      |          < load balancer >              |      |    <server>   |
-    +---------------+      +-----------------------------------------+      +---------------+
-    Attributes:
-        ip (str): virtual server's ip; client-side socket's ip
-        port (int): virtual server's port; client-side socket's port
-        algorithm (str): algorithm used to select a server
-        flow_table (dict): map_fdping of client socket obj <==> server-side socket obj
-        sockets (list): current connected and open socket obj
+    """ Load balancer.
+    
+    Flow Diagram:-
+    Client Socket <-> map(Client Socket, Server Socket) <-> Server Socket
+    
+    Notes:-
+    flow_table is a dictionary that stores the mapping from the client socket to the server side socket
+    sockets is a list that stores the currently connected and open server side sockets
     """
 
     flow_table = dict()
@@ -77,7 +108,7 @@ class LoadBalancer(object):
         try:
             # Create an epoll instance
             self.epoll = select.epoll()
-            self.epoll.register(self.server_socket.fileno(), select.EPOLLIN | select.EPOLLET)
+            self.epoll.register(self.server_socket.fileno(), select.EPOLLIN)
         except OSError as e:
             print("Error in epoll instance: {}".format(e))
             sys.exit(1)
@@ -90,7 +121,7 @@ class LoadBalancer(object):
             print("Can't establish connection with client: {}".format(e))
 
         # select a backend server => ip of backend server
-        server_ip = self.select_server(SERVER_POOL, self.algorithm)
+        server_ip = self.select_server(SERVER_POOL, client_address, self.algorithm)
         
         # init a server-side socket
         ss_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) #instantiate socket on load balancer in order to connect to the backend server
@@ -124,11 +155,15 @@ class LoadBalancer(object):
         print("New connection with BACKEND SERVER {} on socket: {}".format((server_ip,SERVER_PORT),ss_socket.fileno()))
 
 
-    def select_server(self, server_list, algorithm):
+    def select_server(self, server_list, client_address, algorithm):
             if algorithm == 'random':
                 return random.choice(server_list)
             elif algorithm == 'round robin':
                 return round_robin(ITER)
+            elif algorithm == 'fewest_connections':
+                return fewest_connection()
+            elif algorithm == 'ip_hashing':
+                return ip_hashing(client_address)
             else:
                 raise Exception('unknown algorithm: {}'.format(algorithm) )
         
@@ -178,9 +213,13 @@ class LoadBalancer(object):
             self.map_fd[fd].send(response)
         except socket.error:
                 raise
+                
+        self.epoll.modify(self.map_fd[fd], select.EPOLLIN| select.EPOLLONESHOT)
+        
+        """        
         
         if fd in self.ss_sockets:
-            self.epoll.modify(self.map_fd[fd], select.EPOLLIN| select.EPOLLONESHOT)
+            
         else:
             print("Closing Connection with client and backend server on socket {} and {}".format(fd,self.flow_table[fd]))
             print("\n")
@@ -193,6 +232,8 @@ class LoadBalancer(object):
             del self.flow_table[self.flow_table[fd]]
             del self.flow_table[fd]
             return
+            
+		"""
            
 
     def start(self):
