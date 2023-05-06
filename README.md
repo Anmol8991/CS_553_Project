@@ -116,3 +116,5 @@ The PORT is the port of the load balancer
 In the backend server file :- 
 
 The PORT is the port of the backend server
+
+The total time of running these experiments is less than 10 minutes, but unfortunaltely we were not able to find scripts for it to automate the process as we are running multiple tests that requires more than one terminal.
