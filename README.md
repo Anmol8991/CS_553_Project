@@ -36,9 +36,9 @@ NOTE:- We need to set the port number in the client.py as the one of the load ba
 
 3) File Tests using a client application (Stateful)
 
-Start the first backend server at iLab 1 using python backend_server_stateful.py
+Start the first backend server at iLab 1 using python backend_server_file_stateful.py
 
-Start the second backend server at iLab 2 using python backend_server_stateful.py
+Start the second backend server at iLab 2 using python backend_server_file_stateful.py
 
 Start the load balancer at iLab 1 at a different port using using python load_balancer_stateful.py
 
