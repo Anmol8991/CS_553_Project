@@ -2,7 +2,7 @@ import socket
 BUFFER = 1024
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-sock.connect(('128.6.4.101', 8090))
+sock.connect(('128.6.4.101', 8058))
 # sock.setblocking(0)
 
 file_contents = ""

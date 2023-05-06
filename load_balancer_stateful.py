@@ -6,8 +6,8 @@ import random
 from itertools import cycle
 
 HOST = socket.gethostbyname(socket.gethostname())  # Get the IP address of the current machine
-PORT = 8091
-SERVER_PORT = 8053
+PORT = 8058
+SERVER_PORT = 8057
 MAX_EVENTS = 100
 BUFFER = 1024
 RESPONSE = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\nHello, world!\r\n"

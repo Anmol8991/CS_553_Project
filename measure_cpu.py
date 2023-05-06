@@ -1,8 +1,11 @@
 import psutil
 import time
 import sys
+import socket
 
-f = open("cpu_usage.txt", "w")
+machine_name = socket.gethostname()
+
+f = open(" ".join(["cpu_usage.txt", machine_name]), "w")
 
 try:
     while True:

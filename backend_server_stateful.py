@@ -7,7 +7,7 @@ MAX_EVENTS = 100
 BUFFER = 1024
 EXIT = 1
 HOST = socket.gethostbyname(socket.gethostname())  # Get the IP address of the current machine
-PORT = 8082
+PORT = 8057
 num_of_reqs = 0
 num_of_cons = 0
 

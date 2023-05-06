@@ -51,6 +51,7 @@ except OSError as e:
 
 try:
     connections = {}
+    file_name = b''
     while True:
 
         try:
@@ -104,15 +105,27 @@ try:
                             break
                         else:
                             raise
-                
+                            
+                            
+                # Storing the file name
+                file_name = data
                 
                 epoll.modify(connections[fileno], select.EPOLLOUT | select.EPOLLONESHOT)
 
             elif event & select.EPOLLOUT:
 
                 print("Sending Response....")
-                try:  
-                    connections[fileno].send(RESPONSE)
+                try:
+                
+                    # In the file test we need to send the contents of the file through the network
+                    file_contents = ""
+                    
+                    file_name_decoded = file_name.decode()
+                    
+                    with open(file_name_decoded, 'r') as file:
+                        file_contents = bytes(file.read().rstrip(), 'utf-8')
+                         
+                    connections[fileno].send(file_contents)
                     
                     num_of_reqs = num_of_reqs + 1
                     
