@@ -50,7 +50,7 @@
 
 ## 4) Changing the policies
 
-    To change the policies we need to change the Load Balancer argument in the main function for the load balancer to either ‘round robin’,       ‘fewest_connections’ or ‘ip_hashing’. We were planning on using command line arguments for selecting the port number and policy, but we couldn’t complete that due to the lack of time.
+    To change the policies we need to change the Load Balancer argument in the main function for the load balancer to either ‘round robin’, ‘fewest_connections’ or ‘ip_hashing’. We were planning on using command line arguments for selecting the port number and policy, but we couldn’t complete that due to the lack of time.
 
 
 ## 5) Additional Metrics
